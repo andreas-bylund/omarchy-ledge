@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "id": "bylund.ledge",
+  "name": "Ledge",
+  "version": "0.1.0",
+  "author": "Andreas Bylund",
+  "license": "MIT",
+  "description": "A drop zone on the bar: drop files on it from anywhere, then drag them back out into any window later.",
+  "homepage": "https://github.com/andreas-bylund/omarchy-ledge",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Ledge",
+    "description": "A drop zone that hangs off the bar. Drop files on it from a file manager, a browser or the terminal, keep them there across workspaces, and drag them back out into whichever window needs them.",
+    "category": "Utility",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "autoClose": true,
+      "autoCloseSeconds": 3
+    },
+    "schema": [
+      {
+        "key": "autoClose",
+        "type": "boolean",
+        "label": "Close the ledge when the pointer leaves it",
+        "defaultValue": true,
+        "description": "Files can be dropped straight on the bar icon, so the card does not have to stay open to catch them. Off keeps it up until you close it."
+      },
+      {
+        "key": "autoCloseSeconds",
+        "type": "integer",
+        "label": "Seconds before it closes",
+        "min": 1,
+        "max": 15,
+        "step": 1,
+        "defaultValue": 3,
+        "description": "Counted from the moment the pointer leaves both the card and the bar icon. A drag out of the ledge holds it open until the file lands."
+      }
+    ]
+  }
+}
