@@ -46,7 +46,7 @@ require_shell() {
 # means the widget was removed from the bar (or the shell is not running).
 ledge() {
   omarchy-shell "$IPC_TARGET" "$@" ||
-    die "the ledge did not answer — is its widget on the bar? (omarchy bar set $PLUGIN_ID)"
+    die "the ledge did not answer — is its widget on the bar? (omarchy bar put $PLUGIN_ID)"
 }
 
 # Minimal JSON string escaping: enough for file paths, which may contain

@@ -165,10 +165,59 @@ function deserialize(text) {
     return items
 }
 
-function stateDir(home) {
-    return (home ? home : "/tmp") + "/.local/state/omarchy-ledge"
+// Bar settings arrive as real JSON from shell.json, but `omarchy bar set
+// <id> <key> <value>` writes the *string* "true"/"false" unless the caller
+// remembers --json. Both spellings have to mean the same thing: otherwise the
+// most obvious way to change a setting silently does nothing at all.
+function boolSetting(value, fallback) {
+    if (value === undefined || value === null)
+        return fallback
+    if (typeof value === "boolean")
+        return value
+    var text = String(value).trim().toLowerCase()
+    if (text === "true" || text === "1" || text === "yes" || text === "on")
+        return true
+    if (text === "false" || text === "0" || text === "no" || text === "off")
+        return false
+    return fallback
 }
 
-function stateFile(home) {
-    return stateDir(home) + "/ledge.json"
+// The integer counterpart to boolSetting, with the same problem behind it:
+// `omarchy bar set` writes a string, and nothing checks it against the `min`
+// and `max` the manifest advertises, so "abc" arrives intact. Reading that with
+// Number() alone yields NaN, and a NaN timer interval is a timer that fires
+// immediately — the ledge would slam shut the instant it opened. So anything
+// unintelligible falls back, and anything out of range is clamped to the bounds
+// the manifest promised rather than obeyed.
+function intSetting(value, fallback, min, max) {
+    if (value === undefined || value === null || typeof value === "boolean")
+        return fallback
+    var text = typeof value === "number" ? value : String(value).trim()
+    if (text === "")
+        return fallback
+    var number = Number(text)
+    if (!isFinite(number))
+        return fallback
+    number = Math.round(number)
+    if (min !== undefined && number < min)
+        return min
+    if (max !== undefined && number > max)
+        return max
+    return number
+}
+
+// $XDG_STATE_HOME when the session sets one, ~/.local/state otherwise — the
+// default the spec names. With neither there is nowhere private to write, and
+// /tmp is no substitute: it is shared, world-writable and entirely predictable,
+// so somebody else can be sitting on the path first. An empty string means "do
+// not persist", and the ledge still works for as long as the shell runs.
+function stateDir(home, stateHome) {
+    var base = stateHome ? String(stateHome)
+                         : (home ? String(home) + "/.local/state" : "")
+    return base ? base + "/omarchy-ledge" : ""
+}
+
+function stateFile(home, stateHome) {
+    var dir = stateDir(home, stateHome)
+    return dir ? dir + "/ledge.json" : ""
 }

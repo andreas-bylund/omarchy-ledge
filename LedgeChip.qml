@@ -36,9 +36,8 @@ Rectangle {
     signal selectRangeRequested(bool additive)
     signal dragStarted()
     signal dragFinished()
-    // The drag ended on a window that took the files, as opposed to being
-    // dropped on nothing or cancelled.
-    signal dropLanded()
+    // Note there is no "the drop was taken" signal: under Wayland there is no
+    // way to know. See Drag.onDragFinished below.
 
     implicitHeight: Style.space(60)
     radius: theme.radius
@@ -63,9 +62,19 @@ Rectangle {
         }, Qt.size(Style.space(48), Style.space(48)))
     }
 
+    // Off, a drag out can only ever be a copy — the target is not offered
+    // anything else. On, the target picks, which is the only way a move can
+    // happen: with `text/uri-list` it is the receiving application that does
+    // the moving. Ledge never deletes a file itself either way.
+    property bool allowMove: false
+    readonly property int dragActions: chip.allowMove ? (Qt.CopyAction | Qt.MoveAction)
+                                                      : Qt.CopyAction
+
     // Native drag-out. mimeData/imageSource are only used by Drag.Automatic.
     Drag.dragType: Drag.Automatic
-    Drag.supportedActions: Qt.CopyAction
+    Drag.supportedActions: chip.dragActions
+    // Copy stays the proposal even when a move is allowed, so a target that
+    // takes the suggestion rather than deciding for itself leaves files alone.
     Drag.proposedAction: Qt.CopyAction
     Drag.mimeData: ({
         "text/uri-list": Model.uriList(chip.dragPaths),
@@ -74,11 +83,15 @@ Rectangle {
     Drag.imageSource: chip.dragImage !== "" ? chip.dragImage : (chip.isImage ? chip.uri : "")
     Drag.imageSourceSize: Qt.size(Style.space(48), Style.space(48))
 
+    // The action reported here is not usable as a signal. On Hyprland with
+    // Qt 6.11 it comes back as Qt.IgnoreAction (0) for *every* drag, including
+    // drops that a file manager accepted and then moved the file out of. So
+    // this is a log line and nothing else — what actually happened to the
+    // files is settled afterwards by looking at the files themselves
+    // (`settleAfterDrag` in BarWidget.qml).
     Drag.onDragFinished: action => {
         console.log("omarchy-ledge: dragged out", chip.dragPaths.length,
-                    "file(s), action=" + action + " (0 = nobody took it)")
-        if (action !== Qt.IgnoreAction)
-            chip.dropLanded()
+                    "file(s), reported action=" + action + " (not trusted)")
     }
 
     // Qt refuses to start an automatic drag on an attached object that is not
@@ -91,7 +104,7 @@ Rectangle {
     function beginDrag() {
         chip.dragStarted()
         chip.Drag.active = true
-        chip.Drag.startDrag(Qt.CopyAction)
+        chip.Drag.startDrag(chip.dragActions)
         if (chip.Drag.active)
             chip.Drag.active = false
         chip.dragFinished()

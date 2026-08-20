@@ -16,11 +16,12 @@
   "barWidget": {
     "displayName": "Ledge",
     "description": "A drop zone that hangs off the bar. Drop files on it from a file manager, a browser or the terminal, keep them there across workspaces, and drag them back out into whichever window needs them.",
-    "category": "Utility",
+    "category": "Files",
     "allowMultiple": false,
     "defaultSection": "right",
     "defaults": {
       "autoClose": true,
+      "allowMove": false,
       "autoCloseSeconds": 3
     },
     "schema": [
@@ -30,6 +31,13 @@
         "label": "Close the ledge when the pointer leaves it",
         "defaultValue": true,
         "description": "Files can be dropped straight on the bar icon, so the card does not have to stay open to catch them. Off keeps it up until you close it."
+      },
+      {
+        "key": "allowMove",
+        "type": "boolean",
+        "label": "Let the target application move files instead of copying",
+        "defaultValue": false,
+        "description": "Off, a drag out of the ledge is always a copy and the original stays where it is. On, the application you drop into decides, which is the only way it can be a move — Ledge hands over paths and never deletes a file itself. After a drag out, any file that is no longer at its path was moved by whoever took it, and its chip leaves the ledge."
       },
       {
         "key": "autoCloseSeconds",

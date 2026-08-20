@@ -8,7 +8,7 @@ Please include:
 
 - your Omarchy version (`omarchy version`) and compositor,
 - what you dragged, from which application, and what happened,
-- relevant output from `journalctl --user -fu omarchy-shell`.
+- relevant output from `journalctl --user -t omarchy-shell -n 200 | grep omarchy-ledge`.
 
 Drag and drop behaves differently per application, so the source app matters —
 mention it even if it seems irrelevant.

@@ -11,7 +11,7 @@ const EXPORTS = [
     "STATE_VERSION", "ICONS", "EXTENSIONS", "isImageKind", "baseName",
     "extensionOf", "kindOf", "iconFor", "pathFromUrl", "urlFromPath",
     "uriList", "makeItem", "itemsFromDrop", "serialize", "deserialize",
-    "stateDir", "stateFile"
+    "stateDir", "stateFile", "boolSetting", "intSetting"
 ]
 
 export function loadModel() {

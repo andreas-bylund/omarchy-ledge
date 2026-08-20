@@ -47,7 +47,18 @@ drag-in, no matter how well the `DropArea` works.
 ## What was awkward
 
 Both directions work on Hyprland with Qt 6.11 / Quickshell 0.3, from and to
-layer-shell surfaces. Three things were worth writing down:
+layer-shell surfaces. Four things were worth writing down:
+
+**The action a drop reports back is meaningless.** `Drag.onDragFinished` hands
+you a `Qt.DropAction`, and here it is `Qt.IgnoreAction` (0) for *every* drag —
+including a drop that Nautilus accepted and then moved the file out of. Any
+branch on it is dead code, which is how the ledge carried a selection-clear that
+never once ran, and a move-cleanup that left chips pointing at files that had
+moved. Nothing reads it now; it is logged and ignored. What actually happened is
+settled by looking at the files: after a drag out, a carried path that no longer
+exists was moved by whoever took it, so its chip goes too (`settleAfterDrag` in
+`BarWidget.qml`). The check runs on a short delay, because a same-filesystem
+move is a rename that has to land first.
 
 **`startDrag()` needs `Drag.active` first.** Qt refuses to start an automatic
 drag on an attached object that is not already marked active, and it *warns*
@@ -98,16 +109,26 @@ drag or drop behaviour is worth walking through by hand:
    a chip onto it.
 7. **Drag out — file manager.** Drag a chip into a Nautilus window.
 8. **Drag out — chat app.** Drag a chip into Slack/Signal/Discord.
+9. **Drag out with `allowMove` on.** Turn it on behind the gear, then drag a
+   chip into a Nautilus window: the original leaves the source folder, and the
+   chip leaves the ledge about a second later. With the setting off, the
+   original stays and so does the chip.
 
 Every drag that reaches either target logs what the source offered, which is
 the difference between "the drop never arrived" and "it arrived in a format we
 ignore":
 
 ```bash
-quickshell log -f | grep omarchy-ledge
+journalctl --user -t omarchy-shell -f | grep omarchy-ledge
 # omarchy-ledge: bar icon: drag entered urls=1 text=no formats=[text/uri-list,...]
 # omarchy-ledge: bar icon: dropped urls=1 text=no formats=[text/uri-list,...]
 ```
+
+Omarchy starts the shell as `systemd-cat -t omarchy-shell -- quickshell -n -p
+$OMARCHY_PATH/shell`, so its output lands in the journal under that tag. A bare
+`quickshell log` looks for a *default* config directory instead and gives up;
+`quickshell -p /usr/share/omarchy/shell log -f` is the equivalent if you would
+rather read it from quickshell itself.
 
 Silence in that log while a drag is clearly over the icon means the compositor
 is not delivering drags to layer-shell surfaces at all.

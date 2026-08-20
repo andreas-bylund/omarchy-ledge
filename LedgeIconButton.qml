@@ -15,13 +15,18 @@ Rectangle {
     property string tooltipEdge: "bottom"
     property var theme: null
     property bool danger: false
+    // Latched on: the button stands for something that is currently showing,
+    // so it keeps the hover treatment while that lasts.
+    property bool active: false
 
     signal clicked()
 
     implicitWidth: Style.space(26)
     implicitHeight: Style.space(26)
     radius: width / 2
-    color: mouse.containsMouse
+    readonly property bool lit: mouse.containsMouse || button.active
+
+    color: button.lit
            ? (button.danger ? Qt.rgba(1, 0.3, 0.3, 0.22) : theme.raisedHover)
            : "transparent"
 
@@ -34,7 +39,7 @@ Rectangle {
         anchors.centerIn: parent
         font.family: Style.font.family
         font.pixelSize: Style.font.icon
-        color: mouse.containsMouse ? theme.text : theme.muted
+        color: button.active ? theme.accent : (button.lit ? theme.text : theme.muted)
     }
 
     MouseArea {
@@ -64,9 +69,9 @@ Rectangle {
         width: tooltipText.implicitWidth + Style.space(12)
         height: tooltipText.implicitHeight + Style.space(8)
         radius: Math.min(theme.radius, Style.space(6))
-        color: Color.tooltip.background
+        color: theme.tooltipSurface
         border.width: 1
-        border.color: Color.tooltip.border
+        border.color: theme.tooltipBorder
         z: 100
 
         Text {
@@ -75,7 +80,7 @@ Rectangle {
             text: button.tooltip
             font.family: Style.font.family
             font.pixelSize: Style.font.bodySmall
-            color: Color.tooltip.text
+            color: theme.tooltipForeground
         }
     }
 }

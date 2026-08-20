@@ -38,6 +38,7 @@ python3 scripts/glyph-name.py --find tray
 | `U+F0222` | `md-file_multiple` | Copy all as files |
 | `U+F01B4` | `md-delete` | Clear ledge, remove file |
 | `U+F0156` | `md-close` | Close |
+| `U+F0493` | `md-cog` | Settings |
 | `U+F018F` | `md-content_copy` | Copy path |
 | `U+F03CC` | `md-open_in_new` | Open |
 | `U+F02EE` | `md-image_broken_variant` | Image that no longer loads |

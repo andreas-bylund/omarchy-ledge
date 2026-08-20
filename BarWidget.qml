@@ -33,9 +33,16 @@ Panel {
 
     readonly property string homeDir: {
         const home = Quickshell.env ? Quickshell.env("HOME") : ""
-        return home ? String(home) : "/tmp"
+        return home ? String(home) : ""
     }
-    readonly property string statePath: Model.stateFile(homeDir)
+    readonly property string stateHomeDir: {
+        const stateHome = Quickshell.env ? Quickshell.env("XDG_STATE_HOME") : ""
+        return stateHome ? String(stateHome) : ""
+    }
+    // Empty when the session has neither variable set. The ledge then keeps its
+    // files for as long as the shell runs and simply does not survive a
+    // restart, which is better than writing them somewhere shared.
+    readonly property string statePath: Model.stateFile(homeDir, stateHomeDir)
 
     property string toast: ""
     // A drag is hovering the card, and a drag is hovering the bar icon. Two
@@ -57,6 +64,7 @@ Panel {
     readonly property string glyphCopyAll: "\u{F0222}" // nf-md-file_multiple
     readonly property string glyphTrash: "\u{F01B4}"   // nf-md-delete
     readonly property string glyphClose: "\u{F0156}"   // nf-md-close
+    readonly property string glyphSettings: "\u{F0493}" // nf-md-cog
 
     implicitWidth: button.implicitWidth
     implicitHeight: button.implicitHeight
@@ -97,25 +105,37 @@ Panel {
     // chips carry it, so a ledge that will not close explains itself.
 
     property bool pointerHasVisited: false
+    // The card shows its settings instead of the file list. Reset on close so
+    // the ledge always comes back up showing files.
+    property bool settingsOpen: false
 
-    readonly property bool autoCloseWanted: root.setting("autoClose", true) !== false
+    readonly property bool autoCloseWanted: Model.boolSetting(root.setting("autoClose", true), true)
+    // Opt-in. Off, chips are only ever offered as a copy, so nothing a target
+    // application does can relocate a file.
+    readonly property bool moveAllowed: Model.boolSetting(root.setting("allowMove", false), false)
+    // The bounds mirror the manifest's schema. Nothing enforces them on the way
+    // in — `omarchy bar set` stores whatever it is handed — so a value that is
+    // out of range, or not a number at all, is settled here.
+    readonly property int autoCloseDelay: Model.intSetting(root.setting("autoCloseSeconds", 3), 3, 1, 15)
     readonly property bool pointerOnLedge: popup.hovered || button.tooltipHovered
     readonly property bool autoCloseArmed: root.opened && root.autoCloseWanted
         && root.pointerHasVisited && !root.pointerOnLedge
         && !root.dragOutActive && !root.barDropActive
-        && root.selectionCount === 0
+        && root.selectionCount === 0 && !root.settingsOpen
 
     onPointerOnLedgeChanged: if (pointerOnLedge) root.pointerHasVisited = true
     onOpenedChanged: {
         syncPopout()
-        if (!opened)
+        if (!opened) {
             root.pointerHasVisited = false
+            root.settingsOpen = false
+        }
     }
     onAutoCloseArmedChanged: autoCloseArmed ? autoCloseTimer.restart() : autoCloseTimer.stop()
 
     Timer {
         id: autoCloseTimer
-        interval: Math.max(1, Number(root.setting("autoCloseSeconds", 3))) * 1000
+        interval: root.autoCloseDelay * 1000
         onTriggered: if (root.autoCloseArmed) root.close()
     }
 
@@ -238,6 +258,20 @@ Panel {
         return added
     }
 
+    // A target reported that it moved the files rather than copying them, so
+    // the paths these chips carried hold nothing now. Ledge does not delete
+    // anything here — it is only dropping references that have gone stale.
+    function removePaths(paths) {
+        for (const path of paths) {
+            const index = indexOfPath(path)
+            if (index !== -1)
+                ledgeModel.remove(index)
+        }
+        root.selectionAnchor = -1
+        syncSelection()
+        persist()
+    }
+
     function removeAt(index) {
         if (index < 0 || index >= ledgeModel.count)
             return
@@ -281,6 +315,77 @@ Panel {
         showToast("Path copied")
     }
 
+    // Settings live next to the widget's id in shell.json, and `omarchy bar
+    // set` is the supported way to get them there — it knows the file layout
+    // and `--json` keeps the value a real boolean rather than the string
+    // "true". The bar patches running widgets when the file changes, so the
+    // toggle follows from the value coming back, not from local state.
+    function setAllowMove(value) {
+        Quickshell.execDetached(["omarchy", "bar", "set", root.moduleName,
+                                 "allowMove", value ? "true" : "false", "--json"])
+    }
+
+    // What the target did with the files cannot be read off the drag: under
+    // Wayland `Drag.onDragFinished` reports Qt.IgnoreAction for every drag,
+    // including drops a file manager accepted and then moved the file out of
+    // (see docs/drag-and-drop.md). So the ledge settles it by looking at the
+    // files afterwards — a path that is gone was moved by whoever took it, and
+    // its chip goes with it. Nothing is deleted here; a file that is still
+    // there keeps its chip.
+    // Paths still waiting to be looked at. Dragging twice inside the settle
+    // window queues both sets: they are two lots of chips to settle, not one,
+    // and overwriting here used to leave the first drag's chips pointing at
+    // files that had already moved.
+    property var pendingSettle: []
+
+    function settleAfterDrag(paths) {
+        if (!paths || paths.length === 0)
+            return
+        const queued = root.pendingSettle.slice()
+        for (const path of paths) {
+            if (queued.indexOf(path) === -1)
+                queued.push(path)
+        }
+        root.pendingSettle = queued
+        settleTimer.restart()
+    }
+
+    Timer {
+        id: settleTimer
+        // Enough for a same-filesystem move, which is a rename. A slow
+        // cross-filesystem move can still be in flight; that chip is caught by
+        // the check that runs after the next drag of it.
+        interval: 900
+        onTriggered: {
+            if (root.pendingSettle.length === 0)
+                return
+            // The batch before this one is still being looked at, and handing a
+            // running Process a new command drops it. Wait a beat instead.
+            if (settleProcess.running) {
+                settleTimer.restart()
+                return
+            }
+            settleProcess.command = ["sh", "-c",
+                'for p in "$@"; do [ -e "$p" ] || printf "%s\\n" "$p"; done',
+                "omarchy-ledge"].concat(root.pendingSettle)
+            root.pendingSettle = []
+            settleProcess.running = true
+        }
+    }
+
+    Process {
+        id: settleProcess
+        stdout: StdioCollector { id: settleOutput; waitForEnd: true }
+        onExited: {
+            const gone = String(settleOutput.text || "").split("\n").filter(p => p !== "")
+            if (gone.length === 0)
+                return
+            console.log("omarchy-ledge: dropping", gone.length,
+                        "chip(s) whose file moved away")
+            root.removePaths(gone)
+        }
+    }
+
     function openPath(path) {
         Quickshell.execDetached(["xdg-open", path])
     }
@@ -314,6 +419,8 @@ Panel {
     // carry it across a shell restart.
 
     function persist() {
+        if (!root.statePath)
+            return
         const items = []
         for (let i = 0; i < ledgeModel.count; i++) {
             const entry = ledgeModel.get(i)
@@ -322,14 +429,25 @@ Panel {
         stateFile.setText(Model.serialize(items))
     }
 
+    // The state file is read asynchronously, so a file dropped on the bar icon
+    // in the first moments of a shell start can arrive before it. Merging
+    // rather than replacing is what keeps that drop: clearing here would wipe
+    // the file the ledge had just been handed.
     function restore(text) {
         const items = Model.deserialize(text)
         if (!items.length)
             return
-        ledgeModel.clear()
-        for (const item of items)
-            ledgeModel.append(Object.assign({ selected: false }, item))
+        const raced = ledgeModel.count > 0
+        const existing = root.allPaths()
+        for (const item of items) {
+            if (existing.indexOf(item.path) === -1)
+                ledgeModel.append(Object.assign({ selected: false }, item))
+        }
         syncSelection()
+        // Only when the two lists actually met. On an ordinary start the file
+        // on disk is already exactly what was just read out of it.
+        if (raced)
+            persist()
     }
 
     FileView {
@@ -345,7 +463,9 @@ Panel {
 
     Component.onCompleted: {
         // FileView writes the file but not the directory above it.
-        Quickshell.execDetached(["mkdir", "-p", Model.stateDir(root.homeDir)])
+        const dir = Model.stateDir(root.homeDir, root.stateHomeDir)
+        if (dir)
+            Quickshell.execDetached(["mkdir", "-p", dir])
     }
 
     // --- IPC (what `omarchy-ledge` calls) ------------------------------------
@@ -525,7 +645,8 @@ Panel {
             id: body
             anchors.fill: parent
             focus: true
-            implicitHeight: header.height + Style.spacing.xl + root.listHeight
+            implicitHeight: header.height + Style.spacing.xl
+                            + (root.settingsOpen ? settingsView.implicitHeight : root.listHeight)
 
             Keys.onEscapePressed: root.close()
 
@@ -558,9 +679,11 @@ Panel {
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         rightPadding: Style.spacing.md
-                        text: root.selectionCount > 0
-                              ? root.selectionCount + " selected"
-                              : (ledgeModel.count === 1 ? "1 file" : ledgeModel.count + " files")
+                        text: root.settingsOpen
+                              ? "Settings"
+                              : (root.selectionCount > 0
+                                 ? root.selectionCount + " selected"
+                                 : (ledgeModel.count === 1 ? "1 file" : ledgeModel.count + " files"))
                         color: root.selectionCount > 0 ? ledgeTheme.accent : ledgeTheme.muted
                         font.family: root.fontFamily
                         font.pixelSize: Style.font.bodySmall
@@ -574,7 +697,10 @@ Panel {
                         icon: root.glyphCopyAll
                         tooltip: root.selectionCount > 0 ? "Copy selected as files" : "Copy all as files"
                         tooltipEdge: "bottom"
-                        visible: ledgeModel.count > 0
+                        // File actions have nothing to act on in the settings
+                        // view, and they already step out of the row for an
+                        // empty ledge.
+                        visible: ledgeModel.count > 0 && !root.settingsOpen
                         onClicked: root.copyAsFiles(root.targetPaths())
                     }
 
@@ -584,8 +710,17 @@ Panel {
                         tooltip: root.selectionCount > 0 ? "Remove selected" : "Clear ledge"
                         tooltipEdge: "bottom"
                         danger: true
-                        visible: ledgeModel.count > 0
+                        visible: ledgeModel.count > 0 && !root.settingsOpen
                         onClicked: root.selectionCount > 0 ? root.removeSelected() : root.clearLedge()
+                    }
+
+                    LedgeIconButton {
+                        theme: ledgeTheme
+                        icon: root.glyphSettings
+                        tooltip: root.settingsOpen ? "Back to files" : "Settings"
+                        tooltipEdge: "bottom"
+                        active: root.settingsOpen
+                        onClicked: root.settingsOpen = !root.settingsOpen
                     }
 
                     LedgeIconButton {
@@ -609,7 +744,7 @@ Panel {
                 clip: true
                 spacing: root.chipGap
                 model: ledgeModel
-                visible: ledgeModel.count > 0
+                visible: ledgeModel.count > 0 && !root.settingsOpen
                 boundsBehavior: Flickable.StopAtBounds
 
                 delegate: LedgeChip {
@@ -622,6 +757,7 @@ Panel {
                     height: root.chipHeight
                     theme: ledgeTheme
                     fontFamily: root.fontFamily
+                    allowMove: root.moveAllowed
                     path: model.path
                     fileName: model.fileName
                     ext: model.ext
@@ -649,11 +785,20 @@ Panel {
                     }
                     // The pointer is over some other window by now, so the
                     // ledge tidies itself away right after the file lands.
-                    onDragFinished: root.dragOutActive = false
-                    // A selection that has been dragged somewhere has done its
-                    // job. Dropping the marks lets the ledge close itself again
-                    // — holding them would pin the card open for good.
-                    onDropLanded: if (chipDelegate.selected) root.clearSelection()
+                    //
+                    // dragPaths has to be read before the selection is cleared:
+                    // it is bound to the selection, so clearing first collapses
+                    // it to this one chip and the rest are never checked.
+                    onDragFinished: {
+                        root.dragOutActive = false
+                        const carried = chipDelegate.dragPaths.slice()
+                        // A selection that has been dragged somewhere has done
+                        // its job. Dropping the marks lets the ledge close
+                        // itself again — holding them would pin the card open.
+                        if (chipDelegate.selected)
+                            root.clearSelection()
+                        root.settleAfterDrag(carried)
+                    }
                 }
             }
 
@@ -664,7 +809,7 @@ Panel {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
-                visible: ledgeModel.count === 0
+                visible: ledgeModel.count === 0 && !root.settingsOpen
                 radius: ledgeTheme.radius
                 color: root.dropActive ? ledgeTheme.accentSoft : "transparent"
                 border.width: 1
@@ -708,6 +853,37 @@ Panel {
                             NumberAnimation { duration: 140 }
                         }
                     }
+                }
+            }
+
+            // Settings ------------------------------------------------------
+            // Inline rather than a second surface: this card is a drag source
+            // and must not grow anything that covers the screen (see
+            // LedgePopup.qml), and a settings window of its own would be one
+            // more thing to dismiss mid-drag.
+            Column {
+                id: settingsView
+                anchors.top: header.bottom
+                anchors.topMargin: Style.spacing.xl
+                anchors.left: parent.left
+                anchors.right: parent.right
+                visible: root.settingsOpen
+                spacing: Style.spacing.lg
+
+                // Toggle carries its own description, so the explanation goes
+                // there rather than in a paragraph underneath: one control,
+                // one block of text, and the card stays short.
+                Toggle {
+                    width: parent.width
+                    label: "Allow moving files out"
+                    description: "Off, a drag out always copies. On, the app you "
+                                 + "drop into decides and may move the original — "
+                                 + "Ledge never deletes a file itself."
+                    checked: root.moveAllowed
+                    foreground: ledgeTheme.text
+                    accent: ledgeTheme.accent
+                    fontFamily: root.fontFamily
+                    onClicked: root.setAllowMove(!root.moveAllowed)
                 }
             }
 

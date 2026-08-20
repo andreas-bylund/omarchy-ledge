@@ -87,9 +87,57 @@ test("deserialize survives junk instead of losing the ledge", () => {
     assert.deepEqual(model.deserialize('[{"path":"/a.txt","extra":1}]').map(i => i.path), ["/a.txt"])
 })
 
+test("boolSetting accepts the strings omarchy bar set writes", () => {
+    // `omarchy bar set <id> <key> <value>` without --json stores a string.
+    assert.equal(model.boolSetting("true", false), true)
+    assert.equal(model.boolSetting("false", true), false)
+    assert.equal(model.boolSetting("TRUE", false), true)
+    assert.equal(model.boolSetting(" off ", true), false)
+    // --json, and shell.json edited by hand, give real booleans.
+    assert.equal(model.boolSetting(true, false), true)
+    assert.equal(model.boolSetting(false, true), false)
+    // Unset or unintelligible falls back rather than guessing.
+    assert.equal(model.boolSetting(undefined, true), true)
+    assert.equal(model.boolSetting(null, false), false)
+    assert.equal(model.boolSetting("perhaps", true), true)
+    assert.equal(model.boolSetting("perhaps", false), false)
+})
+
+test("intSetting refuses to hand a timer a NaN", () => {
+    // `omarchy bar set <id> autoCloseSeconds 5` stores the string "5", and
+    // checks it against neither the manifest's type nor its min/max.
+    assert.equal(model.intSetting("5", 3, 1, 15), 5)
+    assert.equal(model.intSetting(" 5 ", 3, 1, 15), 5)
+    assert.equal(model.intSetting(5, 3, 1, 15), 5)
+    assert.equal(model.intSetting("2.6", 3, 1, 15), 3)
+    // Out of the range the manifest advertises: clamped to it, not obeyed.
+    assert.equal(model.intSetting("0", 3, 1, 15), 1)
+    assert.equal(model.intSetting("-4", 3, 1, 15), 1)
+    assert.equal(model.intSetting("900", 3, 1, 15), 15)
+    // Unintelligible falls back rather than reaching a Timer as NaN, which
+    // would fire at once and shut the ledge the moment it opened.
+    assert.equal(model.intSetting("abc", 3, 1, 15), 3)
+    assert.equal(model.intSetting("", 3, 1, 15), 3)
+    assert.equal(model.intSetting("  ", 3, 1, 15), 3)
+    assert.equal(model.intSetting(undefined, 3, 1, 15), 3)
+    assert.equal(model.intSetting(null, 3, 1, 15), 3)
+    assert.equal(model.intSetting(true, 3, 1, 15), 3)
+    assert.equal(model.intSetting(NaN, 3, 1, 15), 3)
+    assert.equal(model.intSetting(Infinity, 3, 1, 15), 3)
+    // Unbounded is allowed: both bounds are optional.
+    assert.equal(model.intSetting("900", 3), 900)
+})
+
 test("state file lives under XDG state home", () => {
+    assert.equal(model.stateDir("/home/me"), "/home/me/.local/state/omarchy-ledge")
     assert.equal(model.stateFile("/home/me"), "/home/me/.local/state/omarchy-ledge/ledge.json")
-    assert.equal(model.stateDir(""), "/tmp/.local/state/omarchy-ledge")
+    // $XDG_STATE_HOME wins over the default when the session sets it.
+    assert.equal(model.stateFile("/home/me", "/home/me/.state"), "/home/me/.state/omarchy-ledge/ledge.json")
+    // Nowhere private to write means no persistence at all. /tmp is shared and
+    // predictable, so it is not the answer to a missing home.
+    assert.equal(model.stateDir(""), "")
+    assert.equal(model.stateFile(""), "")
+    assert.equal(model.stateFile("", ""), "")
 })
 
 let failed = 0

@@ -48,6 +48,15 @@ for (const kind of manifest.kinds ?? []) {
     }
 }
 
+// The CLI prints its own version, and there is no way for it to read the
+// manifest at runtime — it talks to the shell, not to this folder. So the two
+// are checked against each other here instead of drifting apart quietly.
+const cli = readFileSync(join(root, "bin/omarchy-ledge"), "utf8")
+const cliVersion = cli.match(/^VERSION="([^"]*)"/m)?.[1]
+check(cliVersion !== undefined, "bin/omarchy-ledge has no VERSION= line")
+check(cliVersion === undefined || cliVersion === String(manifest.version),
+      `bin/omarchy-ledge says ${cliVersion}, manifest.json says ${manifest.version}`)
+
 // The plugin folder is cloned or copied onto other machines, so a symlink
 // *inside* the tree points at something that will not be there. (Linking the
 // plugin directory itself into ~/.config/omarchy/plugins is fine and is the
@@ -71,4 +80,4 @@ if (errors.length) {
     process.exit(1)
 }
 
-console.log(`ok   manifest.json (${manifest.id} ${manifest.version}, kinds: ${manifest.kinds.join(", ")})`)
+console.log(`ok   manifest.json (${manifest.id} ${manifest.version}, kinds: ${manifest.kinds.join(", ")}, cli ${cliVersion})`)

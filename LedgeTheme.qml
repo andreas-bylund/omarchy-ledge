@@ -17,6 +17,13 @@ QtObject {
     readonly property color muted: Color.muted ? Color.muted : Color.foreground
     readonly property color accent: Color.accent ? Color.accent : Color.foreground
 
+    // The tooltip is its own surface in Omarchy's palette, and it is guarded
+    // the same way: a renamed role degrades to the card's own colours rather
+    // than painting a black label on a black background.
+    readonly property color tooltipSurface: Color.tooltip && Color.tooltip.background ? Color.tooltip.background : surface
+    readonly property color tooltipForeground: Color.tooltip && Color.tooltip.text ? Color.tooltip.text : text
+    readonly property color tooltipBorder: Color.tooltip && Color.tooltip.border ? Color.tooltip.border : border
+
     // Derived roles. Alpha keeps them correct in both light and dark themes.
     readonly property color raised: Qt.rgba(text.r, text.g, text.b, 0.06)
     readonly property color raisedHover: Qt.rgba(text.r, text.g, text.b, 0.12)
