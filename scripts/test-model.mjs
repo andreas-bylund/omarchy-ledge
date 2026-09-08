@@ -76,6 +76,7 @@ test("serialize/deserialize round trips", () => {
     const restored = model.deserialize(model.serialize(items))
     assert.deepEqual(restored.map(item => item.path), items.map(item => item.path))
     assert.equal(restored[0].addedAt, 7)
+    assert.equal(restored[0].pinned, false)
     assert.equal(JSON.parse(model.serialize(items)).version, model.STATE_VERSION)
 })
 
@@ -85,6 +86,55 @@ test("deserialize survives junk instead of losing the ledge", () => {
     assert.deepEqual(model.deserialize('{"items":"nope"}'), [])
     assert.deepEqual(model.deserialize('["/a.txt","relative.txt"]').map(i => i.path), ["/a.txt"])
     assert.deepEqual(model.deserialize('[{"path":"/a.txt","extra":1}]').map(i => i.path), ["/a.txt"])
+})
+
+test("new drops are unpinned", () => {
+    const items = model.itemsFromDrop(["/home/me/notes.md"], 1)
+    assert.equal(items[0].pinned, false)
+    assert.equal(model.isPinned(items[0]), false)
+    assert.equal(model.makeItem("/tmp/a.txt", 0).pinned, false)
+    assert.equal(model.makeItem("/tmp/a.txt", 0, true).pinned, true)
+})
+
+test("pinned files survive serialize and an old state file", () => {
+    const items = model.itemsFromDrop(["/home/me/always.pdf", "/home/me/temp.png"], 3)
+    items[0].pinned = true
+    const json = JSON.parse(model.serialize(items))
+    assert.equal(json.items[0].pinned, true)
+    // Unpinned records stay the original { path, addedAt } shape.
+    assert.equal(json.items[1].pinned, undefined)
+
+    const restored = model.deserialize(model.serialize(items))
+    assert.equal(restored[0].pinned, true)
+    assert.equal(restored[1].pinned, false)
+
+    // State written before pinning existed has no `pinned` field.
+    const legacy = model.deserialize('{"version":1,"items":[{"path":"/a.txt","addedAt":1}]}')
+    assert.equal(legacy[0].pinned, false)
+    // Hand-edited strings, the same way bar settings arrive.
+    const fromString = model.deserialize('{"items":[{"path":"/a.txt","pinned":"true"}]}')
+    assert.equal(fromString[0].pinned, true)
+    const fromFalse = model.deserialize('{"items":[{"path":"/a.txt","pinned":"false"}]}')
+    assert.equal(fromFalse[0].pinned, false)
+})
+
+test("clear keeps pinned files, in their original order", () => {
+    const items = model.itemsFromDrop(["/a.txt", "/b.txt", "/c.txt"], 1)
+    items[0].pinned = true
+    items[2].pinned = true
+    assert.deepEqual(model.keepPinned(items).map(i => i.path), ["/a.txt", "/c.txt"])
+    assert.deepEqual(model.keepPinned(model.itemsFromDrop(["/x.txt"], 1)), [])
+})
+
+test("pinned files sort to the top without scrambling either group", () => {
+    const items = model.itemsFromDrop(["/a.txt", "/b.txt", "/c.txt", "/d.txt"], 1)
+    items[1].pinned = true
+    items[3].pinned = true
+    assert.deepEqual(model.pinnedFirst(items).map(i => i.path),
+                     ["/b.txt", "/d.txt", "/a.txt", "/c.txt"])
+    // Already grouped stays put.
+    assert.deepEqual(model.pinnedFirst(model.pinnedFirst(items)).map(i => i.path),
+                     ["/b.txt", "/d.txt", "/a.txt", "/c.txt"])
 })
 
 test("boolSetting accepts the strings omarchy bar set writes", () => {

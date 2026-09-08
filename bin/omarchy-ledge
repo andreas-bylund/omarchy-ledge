@@ -10,7 +10,7 @@ set -euo pipefail
 
 PLUGIN_ID="bylund.ledge"
 IPC_TARGET="bylund.ledge"
-VERSION="0.1.0"
+VERSION="0.2.0"
 
 die() {
   printf 'omarchy-ledge: %s\n' "$1" >&2
@@ -23,15 +23,18 @@ Usage: omarchy-ledge <command> [arguments]
 
 Commands:
   add [--no-show] <file>...  Put files on the ledge (opens the ledge)
+  pin <file>...              Pin files so clear leaves them (adds if needed)
+  unpin <file>...            Unpin files so clear can take them
   list                       Print the files currently on the ledge
   count                      Print how many files are on the ledge
-  clear                      Remove everything from the ledge
+  clear                      Remove everything unpinned from the ledge
   show | toggle | hide       Open or close the ledge under its bar icon
   help | version
 
 Examples:
   omarchy-ledge add ~/Pictures/screenshot.png
   omarchy-ledge add --no-show ./report.pdf ../notes.md
+  omarchy-ledge pin ~/Documents/invoice.pdf
   omarchy-ledge list | wl-copy
 EOF
 }
@@ -119,6 +122,25 @@ cmd_add() {
   fi
 }
 
+cmd_pin() {
+  local action=$1
+  shift
+
+  [ $# -gt 0 ] || die "$action needs at least one file"
+
+  local files=()
+  local file abs
+  for file in "$@"; do
+    [ -e "$file" ] || die "no such file: $file"
+    abs=$(realpath -- "$file")
+    files+=("$abs")
+  done
+
+  local payload
+  payload=$(json_payload "${files[@]}")
+  ledge "$action" "$payload" >/dev/null
+}
+
 main() {
   local subcommand=${1:-help}
   if [ $# -gt 0 ]; then
@@ -129,6 +151,10 @@ main() {
     add)
       require_shell
       cmd_add "$@"
+      ;;
+    pin | unpin)
+      require_shell
+      cmd_pin "$subcommand" "$@"
       ;;
     list)
       require_shell

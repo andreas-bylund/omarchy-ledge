@@ -156,6 +156,9 @@ Panel {
     property var selectedPathList: []
     // Where a Shift-click measures its range from.
     property int selectionAnchor: -1
+    // Same reason as selectionCount: walking the model from a binding would
+    // go stale the moment setProperty flipped `pinned`.
+    property int pinnedCount: 0
 
     function syncSelection() {
         const paths = []
@@ -167,6 +170,36 @@ Panel {
         root.selectionCount = paths.length
         if (paths.length === 0)
             root.selectionAnchor = -1
+        root.syncPinnedCount()
+    }
+
+    function syncPinnedCount() {
+        let n = 0
+        for (let i = 0; i < ledgeModel.count; i++) {
+            if (ledgeModel.get(i).pinned === true)
+                n++
+        }
+        root.pinnedCount = n
+    }
+
+    // Pinned chips sit at the top, keeping the order they already had inside
+    // each group. ListModel has no sort, so this is a stable partition with
+    // `move` — the same rule `Model.pinnedFirst` describes for the tests.
+    function compactPinned() {
+        let insertAt = 0
+        let moved = false
+        for (let i = 0; i < ledgeModel.count; i++) {
+            if (ledgeModel.get(i).pinned === true) {
+                if (i !== insertAt) {
+                    ledgeModel.move(i, insertAt, 1)
+                    moved = true
+                }
+                insertAt++
+            }
+        }
+        if (moved)
+            root.selectionAnchor = -1
+        syncSelection()
     }
 
     function toggleSelection(index) {
@@ -220,6 +253,17 @@ Panel {
         persist()
     }
 
+    function setPinnedAt(index, pinned) {
+        if (index < 0 || index >= ledgeModel.count)
+            return
+        if ((ledgeModel.get(index).pinned === true) === pinned)
+            return
+        ledgeModel.setProperty(index, "pinned", pinned)
+        compactPinned()
+        persist()
+        showToast(pinned ? "Pinned — kept on clear" : "Unpinned")
+    }
+
     // Everything the buttons in the header act on: the selection when there is
     // one, the whole ledge otherwise.
     function targetPaths() {
@@ -245,8 +289,9 @@ Panel {
             if (indexOfPath(item.path) !== -1)
                 continue
             // The role has to exist from the first append or setProperty()
-            // cannot add it later.
-            ledgeModel.append(Object.assign({ selected: false }, item))
+            // cannot add it later — that includes `pinned`, which is flipped
+            // after the chip is already in the list.
+            ledgeModel.append(Object.assign({ selected: false, pinned: false }, item))
             added++
         }
         if (added > 0) {
@@ -293,10 +338,20 @@ Panel {
     function clearLedge() {
         if (ledgeModel.count === 0)
             return
-        ledgeModel.clear()
+        let removed = 0
+        for (let i = ledgeModel.count - 1; i >= 0; i--) {
+            if (ledgeModel.get(i).pinned !== true) {
+                ledgeModel.remove(i)
+                removed++
+            }
+        }
+        if (removed === 0) {
+            showToast(ledgeModel.count === 1 ? "Pinned file kept" : "Pinned files kept")
+            return
+        }
         syncSelection()
         persist()
-        showToast("Ledge cleared")
+        showToast(ledgeModel.count > 0 ? "Cleared — pinned files kept" : "Ledge cleared")
     }
 
     // --- clipboard / open ----------------------------------------------------
@@ -424,7 +479,11 @@ Panel {
         const items = []
         for (let i = 0; i < ledgeModel.count; i++) {
             const entry = ledgeModel.get(i)
-            items.push({ path: entry.path, addedAt: entry.addedAt })
+            items.push({
+                path: entry.path,
+                addedAt: entry.addedAt,
+                pinned: entry.pinned === true
+            })
         }
         stateFile.setText(Model.serialize(items))
     }
@@ -438,12 +497,17 @@ Panel {
         if (!items.length)
             return
         const raced = ledgeModel.count > 0
-        const existing = root.allPaths()
         for (const item of items) {
-            if (existing.indexOf(item.path) === -1)
-                ledgeModel.append(Object.assign({ selected: false }, item))
+            const index = indexOfPath(item.path)
+            if (index === -1) {
+                ledgeModel.append(Object.assign({ selected: false, pinned: false }, item))
+            } else if (item.pinned === true && ledgeModel.get(index).pinned !== true) {
+                // A drop that won the startup race still picks up the pin
+                // the state file remembered for the same path.
+                ledgeModel.setProperty(index, "pinned", true)
+            }
         }
-        syncSelection()
+        compactPinned()
         // Only when the two lists actually met. On an ordinary start the file
         // on disk is already exactly what was just read out of it.
         if (raced)
@@ -477,7 +541,7 @@ Panel {
     // across the method's parameters, so a bare JSON array never survives the
     // trip. An object does, and it keeps file names with spaces, commas,
     // quotes or newlines in one piece.
-    function addFromArgument(argument) {
+    function entriesFromArgument(argument) {
         const text = String(argument)
         let entries = null
         try {
@@ -489,7 +553,40 @@ Panel {
         } catch (e) {
             // Not JSON: treated as plain text below.
         }
-        return root.addPaths(entries ? entries : text.split("\n"))
+        return entries ? entries : text.split("\n")
+    }
+
+    function addFromArgument(argument) {
+        return root.addPaths(root.entriesFromArgument(argument))
+    }
+
+    // Pins files that are already on the ledge, and puts missing ones there
+    // already pinned — the CLI path for "I always re-add these". Unpin of a
+    // path that is not on the ledge is a no-op.
+    function pinFromArgument(argument, pinned) {
+        const items = Model.itemsFromDrop(root.entriesFromArgument(argument), Date.now())
+        let changed = 0
+        for (const item of items) {
+            const index = indexOfPath(item.path)
+            if (index === -1) {
+                if (!pinned)
+                    continue
+                ledgeModel.append(Object.assign({ selected: false }, item, { pinned: true }))
+                changed++
+            } else if ((ledgeModel.get(index).pinned === true) !== pinned) {
+                ledgeModel.setProperty(index, "pinned", pinned)
+                changed++
+            }
+        }
+        if (changed > 0) {
+            compactPinned()
+            persist()
+            if (pinned)
+                showToast(changed === 1 ? "Pinned 1 file" : "Pinned " + changed + " files")
+            else
+                showToast(changed === 1 ? "Unpinned 1 file" : "Unpinned " + changed + " files")
+        }
+        return changed
     }
 
     IpcHandler {
@@ -515,7 +612,15 @@ Panel {
 
         function list(): string { return root.allPaths().join("\n") }
         function count(): string { return String(ledgeModel.count) }
-        function clear(): string { root.clearLedge(); return "0" }
+        function clear(): string { root.clearLedge(); return String(ledgeModel.count) }
+        function pin(paths: string): string {
+            const n = root.pinFromArgument(paths, true)
+            root.open()
+            return String(n)
+        }
+        function unpin(paths: string): string {
+            return String(root.pinFromArgument(paths, false))
+        }
     }
 
     LedgeTheme {
@@ -707,10 +812,16 @@ Panel {
                     LedgeIconButton {
                         theme: ledgeTheme
                         icon: root.glyphTrash
-                        tooltip: root.selectionCount > 0 ? "Remove selected" : "Clear ledge"
+                        tooltip: root.selectionCount > 0
+                                 ? "Remove selected"
+                                 : (root.pinnedCount > 0 ? "Clear unpinned" : "Clear ledge")
                         tooltipEdge: "bottom"
                         danger: true
-                        visible: ledgeModel.count > 0 && !root.settingsOpen
+                        // Hidden when every remaining file is pinned and
+                        // nothing is selected: clear would not take any of them.
+                        visible: !root.settingsOpen
+                                 && (root.selectionCount > 0
+                                     || root.pinnedCount < ledgeModel.count)
                         onClicked: root.selectionCount > 0 ? root.removeSelected() : root.clearLedge()
                     }
 
@@ -764,6 +875,7 @@ Panel {
                     icon: model.icon
                     isImage: model.isImage
                     selected: model.selected === true
+                    pinned: model.pinned === true
                     selectionCount: root.selectionCount
                     // Dragging a selected chip carries the whole selection;
                     // dragging an unselected one carries just itself and leaves
@@ -777,6 +889,7 @@ Panel {
                     onCopyPathRequested: root.copyPath(chipDelegate.path)
                     onOpenRequested: root.openPath(chipDelegate.path)
                     onRemoveRequested: root.removeAt(chipDelegate.index)
+                    onPinRequested: root.setPinnedAt(chipDelegate.index, !chipDelegate.pinned)
                     onSelectToggleRequested: root.toggleSelection(chipDelegate.index)
                     onSelectRangeRequested: additive => root.selectRangeTo(chipDelegate.index, additive)
                     onDragStarted: {

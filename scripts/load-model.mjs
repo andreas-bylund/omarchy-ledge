@@ -11,6 +11,7 @@ const EXPORTS = [
     "STATE_VERSION", "ICONS", "EXTENSIONS", "isImageKind", "baseName",
     "extensionOf", "kindOf", "iconFor", "pathFromUrl", "urlFromPath",
     "uriList", "makeItem", "itemsFromDrop", "serialize", "deserialize",
+    "isPinned", "keepPinned", "pinnedFirst",
     "stateDir", "stateFile", "boolSetting", "intSetting"
 ]
 
