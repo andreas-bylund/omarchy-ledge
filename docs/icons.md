@@ -41,6 +41,8 @@ python3 scripts/glyph-name.py --find tray
 | `U+F0493` | `md-cog` | Settings |
 | `U+F018F` | `md-content_copy` | Copy path |
 | `U+F03CC` | `md-open_in_new` | Open |
+| `U+F0403` | `md-pin` | Pinned chip, unpin action |
+| `U+F0931` | `md-pin_outline` | Pin action |
 | `U+F02EE` | `md-image_broken_variant` | Image that no longer loads |
 | `U+F0214` | `md-file` | Fallback file type |
 | `U+F021F` | `md-file_image` | Images |

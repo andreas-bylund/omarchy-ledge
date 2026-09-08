@@ -31,7 +31,8 @@ again, drag out. It is inspired by [Dropover](https://dropoverapp.com) on macOS.
 - **Survives workspace switches, hides and shell restarts** — the ledge lives in
   the long-running shell process and its contents are saved to disk.
 - **Thumbnails** for images, file-type icons for everything else.
-- **Per-file actions**: copy path, open, remove.
+- **Pin files** so they stay when you clear the ledge — the ones you keep putting back.
+- **Per-file actions**: pin, copy path, open, remove.
 - **Lives on the bar**: an icon that fills up as files land on it, and a card
   that opens right under it — no floating window to chase.
 - **Stays open while you work.** Unlike the other bar popups it does not close
@@ -95,8 +96,9 @@ and the file count and header actions along the top](preview.png)
 | Ctrl-click chips | Marks them; dragging any one of them carries the whole selection, and the ledge stays open while any are marked |
 | Shift-click a chip | Marks the run from where the selection started to here, replacing what was marked. Ctrl-shift-click adds the run instead |
 | Click a chip | Drops the selection and copies that one file to the clipboard — paste it into any app that accepts files |
-| Hover a chip | Copy path · Open · Remove |
-| Header buttons | Copy · Remove · Settings · Close — the first two act on the selection when there is one, on the whole ledge otherwise |
+| Hover a chip | Copy path · Open · Pin · Remove |
+| Pin a chip | It stays on the ledge when you clear it. Unpin it, and clear will take it |
+| Header buttons | Copy · Remove · Settings · Close — the first two act on the selection when there is one, on the whole ledge otherwise. Clear leaves pinned files |
 | Move the pointer away | The ledge closes itself a few seconds later (see Settings) |
 | `Esc` | Closes the ledge, once the card has the keyboard (click it first) |
 
@@ -118,9 +120,11 @@ a keybinding on `omarchy-ledge toggle` close it from anywhere.
 ```bash
 omarchy-ledge add ~/Pictures/screenshot.png   # add and open the ledge
 omarchy-ledge add --no-show ./report.pdf      # add quietly
+omarchy-ledge pin ~/Documents/invoice.pdf     # add (if needed) and pin
+omarchy-ledge unpin ./report.pdf
 omarchy-ledge list                            # print the ledge contents
 omarchy-ledge count
-omarchy-ledge clear
+omarchy-ledge clear                           # unpinned files only
 omarchy-ledge toggle                          # show / hide the ledge
 ```
 
@@ -164,10 +168,10 @@ treats `true` and `"true"` the same, so both spellings work.
 ## Where state is kept
 
 `~/.local/state/omarchy-ledge/ledge.json` — or `$XDG_STATE_HOME/omarchy-ledge/`
-if your session sets that. A plain list of paths. Delete it to reset the
-ledge. Only file paths are stored, never file contents — putting a file on
-the ledge does not copy, move or upload it, and dragging one back out copies it
-unless you have turned on `allowMove`.
+if your session sets that. A list of paths, and which of them are pinned.
+Delete it to reset the ledge. Only file paths are stored, never file contents —
+putting a file on the ledge does not copy, move or upload it, and dragging one
+back out copies it unless you have turned on `allowMove`.
 
 Ledge never deletes a file itself, in either mode. With `allowMove` on it hands
 the target application both options and that application does the moving. What

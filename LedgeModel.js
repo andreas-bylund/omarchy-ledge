@@ -6,7 +6,7 @@
 // without Qt (scripts/test-model.mjs). Everything here is a plain function
 // over plain data.
 //
-// An item is: { path, fileName, ext, kind, icon, isImage, addedAt }
+// An item is: { path, fileName, ext, kind, icon, isImage, addedAt, pinned }
 
 var STATE_VERSION = 1
 
@@ -105,7 +105,7 @@ function uriList(paths) {
     return paths.map(urlFromPath).join("\r\n") + "\r\n"
 }
 
-function makeItem(path, addedAt) {
+function makeItem(path, addedAt, pinned) {
     var kind = kindOf(path)
     return {
         path: path,
@@ -114,7 +114,8 @@ function makeItem(path, addedAt) {
         kind: kind,
         icon: iconFor(path),
         isImage: isImageKind(kind),
-        addedAt: addedAt ? addedAt : 0
+        addedAt: addedAt ? addedAt : 0,
+        pinned: !!pinned
     }
 }
 
@@ -138,7 +139,12 @@ function itemsFromDrop(entries, addedAt) {
 
 function serialize(items) {
     var plain = items.map(function (item) {
-        return { path: item.path, addedAt: item.addedAt }
+        var entry = { path: item.path, addedAt: item.addedAt }
+        // Only the true pins are written, so an unpinned ledge still looks
+        // like the original { path, addedAt } records.
+        if (item.pinned)
+            entry.pinned = true
+        return entry
     })
     return JSON.stringify({ version: STATE_VERSION, items: plain }, null, 2) + "\n"
 }
@@ -160,9 +166,35 @@ function deserialize(text) {
         var path = typeof entry === "string" ? entry : (entry && entry.path)
         if (!path || String(path).indexOf("/") !== 0)
             continue
-        items.push(makeItem(String(path), entry && entry.addedAt ? entry.addedAt : 0))
+        items.push(makeItem(String(path),
+                            entry && entry.addedAt ? entry.addedAt : 0,
+                            boolSetting(entry && entry.pinned, false)))
     }
     return items
+}
+
+function isPinned(item) {
+    return !!(item && item.pinned)
+}
+
+// What `clear` leaves behind: pinned files stay until they are unpinned.
+function keepPinned(items) {
+    return items.filter(isPinned)
+}
+
+// Pinned files sit at the top, in the order they already had. Unpinned files
+// keep their relative order underneath. Used to check the rule; the live list
+// is a ListModel and does the same shuffle with `move`.
+function pinnedFirst(items) {
+    var pinned = []
+    var rest = []
+    for (var i = 0; i < items.length; i++) {
+        if (isPinned(items[i]))
+            pinned.push(items[i])
+        else
+            rest.push(items[i])
+    }
+    return pinned.concat(rest)
 }
 
 // Bar settings arrive as real JSON from shell.json, but `omarchy bar set

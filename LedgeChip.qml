@@ -19,6 +19,7 @@ Rectangle {
     property string ext: ""
     property bool isImage: false
     property bool selected: false
+    property bool pinned: false
     // How many chips are selected in total, so a selected chip can say what it
     // is part of. Zero when nothing is selected.
     property int selectionCount: 0
@@ -31,6 +32,7 @@ Rectangle {
     signal copyFileRequested()
     signal copyPathRequested()
     signal openRequested()
+    signal pinRequested()
     signal removeRequested()
     signal selectToggleRequested()
     signal selectRangeRequested(bool additive)
@@ -196,6 +198,22 @@ Rectangle {
             font.pixelSize: Style.font.displayLarge
             color: theme.muted
         }
+
+        // Stays visible when the hover actions are hidden, so a pinned file
+        // still reads as pinned at a glance. Outline keeps the glyph readable
+        // on a bright thumbnail.
+        Text {
+            visible: chip.pinned
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.margins: 1
+            text: "\u{F0403}"   // nf-md-pin
+            font.family: chip.fontFamily
+            font.pixelSize: Style.font.caption
+            color: theme.accent
+            style: Text.Outline
+            styleColor: theme.surface
+        }
     }
 
     Column {
@@ -233,6 +251,8 @@ Rectangle {
                 }
                 if (hover.hovered)
                     return "drag · click copies · ctrl-click selects"
+                if (chip.pinned)
+                    return chip.ext ? chip.ext.toUpperCase() + " · pinned" : "pinned"
                 return chip.ext ? chip.ext.toUpperCase() : "FILE"
             }
             elide: Text.ElideRight
@@ -273,6 +293,15 @@ Rectangle {
             tooltip: "Open"
             tooltipEdge: "left"
             onClicked: chip.openRequested()
+        }
+
+        LedgeIconButton {
+            theme: chip.theme
+            icon: chip.pinned ? "\u{F0403}" : "\u{F0931}"  // nf-md-pin / nf-md-pin_outline
+            tooltip: chip.pinned ? "Unpin" : "Pin — kept on clear"
+            tooltipEdge: "left"
+            active: chip.pinned
+            onClicked: chip.pinRequested()
         }
 
         LedgeIconButton {

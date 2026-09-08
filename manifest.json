@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "bylund.ledge",
   "name": "Ledge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Andreas Bylund",
   "license": "MIT",
   "description": "A drop zone on the bar: drop files on it from anywhere, then drag them back out into any window later.",
